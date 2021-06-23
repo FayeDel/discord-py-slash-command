@@ -233,14 +233,13 @@ async def send(
     if embed is not None:
         embed = embed.to_dict()
 
-    if allowed_mentions is not None:
-        if state.allowed_mentions is not None:
-            allowed_mentions = state.allowed_mentions.merge(allowed_mentions).to_dict()
-        else:
-            allowed_mentions = allowed_mentions.to_dict()
-    else:
+    if allowed_mentions is None:
         allowed_mentions = state.allowed_mentions and state.allowed_mentions.to_dict()
 
+    elif state.allowed_mentions is not None:
+        allowed_mentions = state.allowed_mentions.merge(allowed_mentions).to_dict()
+    else:
+        allowed_mentions = allowed_mentions.to_dict()
     if mention_author is not None:
         allowed_mentions = allowed_mentions or AllowedMentions().to_dict()
         allowed_mentions["replied_user"] = bool(mention_author)
