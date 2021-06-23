@@ -181,9 +181,9 @@ class SlashCommand:
                     if x.name in self.subcommands[x.base][x.subcommand_group]:
                         raise error.DuplicateCommand(f"{x.base} {x.subcommand_group} {x.name}")
                     self.subcommands[x.base][x.subcommand_group][x.name] = x
+                elif x.name in self.subcommands[x.base]:
+                    raise error.DuplicateCommand(f"{x.base} {x.name}")
                 else:
-                    if x.name in self.subcommands[x.base]:
-                        raise error.DuplicateCommand(f"{x.base} {x.name}")
                     self.subcommands[x.base][x.name] = x
 
     def _get_cog_component_callbacks(self, cog, func_list):
@@ -380,11 +380,11 @@ class SlashCommand:
             permissions = {}
             new_cmds = cmds_formatted[scope]
             existing_cmds = await self.req.get_all_commands(guild_id=scope)
-            existing_by_name = {}
             to_send = []
             changed = False
-            for cmd in existing_cmds:
-                existing_by_name[cmd["name"]] = model.CommandData(**cmd)
+            existing_by_name = {
+                cmd["name"]: model.CommandData(**cmd) for cmd in existing_cmds
+            }
 
             if len(new_cmds) != len(existing_cmds):
                 changed = True
@@ -418,12 +418,8 @@ class SlashCommand:
                     f"Detected no changes on {scope if scope is not None else 'global'}, skipping"
                 )
 
-            id_name_map = {}
-            for cmd in existing_cmds:
-                id_name_map[cmd["name"]] = cmd["id"]
-
-            for cmd_name in permissions:
-                cmd_permissions = permissions[cmd_name]
+            id_name_map = {cmd["name"]: cmd["id"] for cmd in existing_cmds}
+            for cmd_name, cmd_permissions in permissions.items():
                 cmd_id = id_name_map[cmd_name]
                 for applicable_guild in cmd_permissions:
                     if applicable_guild not in permissions_map:
@@ -445,11 +441,9 @@ class SlashCommand:
             if len(existing_perms) != len(new_perms):
                 changed = True
             else:
-                existing_perms_model = {}
-                for existing_perm in existing_perms:
-                    existing_perms_model[existing_perm["id"]] = model.GuildPermissionsData(
+                existing_perms_model = {existing_perm["id"]: model.GuildPermissionsData(
                         **existing_perm
-                    )
+                    ) for existing_perm in existing_perms}
                 for new_perm in new_perms:
                     if new_perm["id"] not in existing_perms_model:
                         changed = True
@@ -761,7 +755,7 @@ class SlashCommand:
             if decorator_permissions:
                 permissions.update(decorator_permissions)
 
-            obj = self.add_slash_command(
+            return self.add_slash_command(
                 cmd,
                 name,
                 description,
@@ -771,8 +765,6 @@ class SlashCommand:
                 permissions,
                 connector,
             )
-
-            return obj
 
         return wrapper
 
@@ -856,7 +848,7 @@ class SlashCommand:
             if decorator_permissions:
                 base_permissions.update(decorator_permissions)
 
-            obj = self.add_subcommand(
+            return self.add_subcommand(
                 cmd,
                 base,
                 subcommand_group,
@@ -870,8 +862,6 @@ class SlashCommand:
                 options,
                 connector,
             )
-
-            return obj
 
         return wrapper
 
@@ -1203,16 +1193,15 @@ class SlashCommand:
                 await self.on_component_callback_error(ctx, ex)
 
     async def _handle_invoke_error(self, func, ctx, ex):
-        if hasattr(func, "on_error"):
-            if func.on_error is not None:
-                try:
-                    if hasattr(func, "cog"):
-                        await func.on_error(func.cog, ctx, ex)
-                    else:
-                        await func.on_error(ctx, ex)
-                    return True
-                except Exception as e:
-                    self.logger.error(f"{ctx.command}:: Error using error decorator: {e}")
+        if hasattr(func, "on_error") and func.on_error is not None:
+            try:
+                if hasattr(func, "cog"):
+                    await func.on_error(func.cog, ctx, ex)
+                else:
+                    await func.on_error(ctx, ex)
+                return True
+            except Exception as e:
+                self.logger.error(f"{ctx.command}:: Error using error decorator: {e}")
         return False
 
     async def on_socket_response(self, msg):
@@ -1248,50 +1237,52 @@ class SlashCommand:
             await self.invoke_component_callback(callback, ctx)
 
     async def _on_slash(self, to_use):
-        if to_use["data"]["name"] in self.commands:
+        if to_use["data"]["name"] not in self.commands:
 
-            ctx = context.SlashContext(self.req, to_use, self._discord, self.logger)
-            cmd_name = to_use["data"]["name"]
+            return
 
-            if cmd_name not in self.commands and cmd_name in self.subcommands:
-                return await self.handle_subcommand(ctx, to_use)
+        ctx = context.SlashContext(self.req, to_use, self._discord, self.logger)
+        cmd_name = to_use["data"]["name"]
 
-            selected_cmd = self.commands[to_use["data"]["name"]]
+        if cmd_name not in self.commands and cmd_name in self.subcommands:
+            return await self.handle_subcommand(ctx, to_use)
 
-            if (
-                selected_cmd.allowed_guild_ids
-                and ctx.guild_id not in selected_cmd.allowed_guild_ids
-            ):
-                return
+        selected_cmd = self.commands[to_use["data"]["name"]]
 
-            if selected_cmd.has_subcommands and not selected_cmd.func:
-                return await self.handle_subcommand(ctx, to_use)
+        if (
+            selected_cmd.allowed_guild_ids
+            and ctx.guild_id not in selected_cmd.allowed_guild_ids
+        ):
+            return
 
-            if "options" in to_use["data"]:
-                for x in to_use["data"]["options"]:
-                    if "value" not in x:
-                        return await self.handle_subcommand(ctx, to_use)
+        if selected_cmd.has_subcommands and not selected_cmd.func:
+            return await self.handle_subcommand(ctx, to_use)
+
+        if "options" in to_use["data"]:
+            for x in to_use["data"]["options"]:
+                if "value" not in x:
+                    return await self.handle_subcommand(ctx, to_use)
 
             # This is to temporarily fix Issue #97, that on Android device
             # does not give option type from API.
-            temporary_auto_convert = {}
-            for x in selected_cmd.options:
-                temporary_auto_convert[x["name"].lower()] = x["type"]
+        temporary_auto_convert = {
+            x["name"].lower(): x["type"] for x in selected_cmd.options
+        }
 
-            args = (
-                await self.process_options(
-                    ctx.guild,
-                    to_use["data"]["options"],
-                    selected_cmd.connector,
-                    temporary_auto_convert,
-                )
-                if "options" in to_use["data"]
-                else {}
+        args = (
+            await self.process_options(
+                ctx.guild,
+                to_use["data"]["options"],
+                selected_cmd.connector,
+                temporary_auto_convert,
             )
+            if "options" in to_use["data"]
+            else {}
+        )
 
-            self._discord.dispatch("slash_command", ctx)
+        self._discord.dispatch("slash_command", ctx)
 
-            await self.invoke_command(selected_cmd, ctx, args)
+        await self.invoke_command(selected_cmd, ctx, args)
 
     async def handle_subcommand(self, ctx: context.SlashContext, data: dict):
         """
@@ -1322,9 +1313,9 @@ class SlashCommand:
 
                 # This is to temporarily fix Issue #97, that on Android device
                 # does not give option type from API.
-                temporary_auto_convert = {}
-                for n in selected.options:
-                    temporary_auto_convert[n["name"].lower()] = n["type"]
+                temporary_auto_convert = {
+                    n["name"].lower(): n["type"] for n in selected.options
+                }
 
                 args = (
                     await self.process_options(
@@ -1340,9 +1331,9 @@ class SlashCommand:
 
         # This is to temporarily fix Issue #97, that on Android device
         # does not give option type from API.
-        temporary_auto_convert = {}
-        for n in selected.options:
-            temporary_auto_convert[n["name"].lower()] = n["type"]
+        temporary_auto_convert = {
+            n["name"].lower(): n["type"] for n in selected.options
+        }
 
         args = (
             await self.process_options(
@@ -1356,10 +1347,9 @@ class SlashCommand:
 
     def _on_error(self, ctx, ex, event_name):
         on_event = "on_" + event_name
-        if self.has_listener:
-            if self._discord.extra_events.get(on_event):
-                self._discord.dispatch(event_name, ctx, ex)
-                return True
+        if self.has_listener and self._discord.extra_events.get(on_event):
+            self._discord.dispatch(event_name, ctx, ex)
+            return True
         if hasattr(self._discord, on_event):
             self._discord.dispatch(event_name, ctx, ex)
             return True

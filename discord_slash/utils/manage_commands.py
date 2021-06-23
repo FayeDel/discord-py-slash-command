@@ -343,9 +343,7 @@ def create_permission(
     .. note::
         For @everyone permission, set id_type as role and id as guild id.
     """
-    if not (
-        isinstance(id_type, int) or isinstance(id_type, bool)
-    ):  # Bool values are a subclass of int
+    if not isinstance(id_type, (int, bool)):  # Bool values are a subclass of int
         original_type = id_type
         id_type = SlashCommandPermissionType.from_type(original_type)
         if id_type is None:
