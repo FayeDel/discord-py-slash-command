@@ -160,8 +160,8 @@ class WebSocket:
         }
 
         async with self.req.session.ws_connect(
-            gateway_url["url"] + "?v=9&encoding=json", **options
-        ) as self.session:
+                gateway_url["url"] + "?v=9&encoding=json", **options
+            ) as self.session:
             while not self.closed:
                 stream = await self.recv()
 
@@ -220,16 +220,14 @@ class WebSocket:
                         else:
                             self.closed = True
 
+                elif event == "READY":
+                    self.session_id = data["session_id"]
+                    self.sequence = stream["s"]
+                    self.dispatch.dispatch("on_ready")
+                    log.debug(f"READY (SES_ID: {self.session_id}, SEQ_ID: {self.sequence})")
                 else:
-                    if event == "READY":
-                        self.session_id = data["session_id"]
-                        self.sequence = stream["s"]
-                        self.dispatch.dispatch("on_ready")
-                        log.debug(f"READY (SES_ID: {self.session_id}, SEQ_ID: {self.sequence})")
-                    else:
-                        log.debug(f"{event}: {data}")
-                        self.dispatch.dispatch(f"on_{event.lower()}", data)
-                    continue
+                    log.debug(f"{event}: {data}")
+                    self.dispatch.dispatch(f"on_{event.lower()}", data)
 
     async def send(self, data: Union[str, dict]) -> None:
         packet: str = dumps(data).decode("utf-8") if isinstance(data, dict) else data

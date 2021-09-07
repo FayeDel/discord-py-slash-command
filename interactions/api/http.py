@@ -153,7 +153,7 @@ class Request:
 
         bucket: Optional[str] = route.bucket
 
-        for attempt in range(3):
+        for _ in range(3):
             ratelimit: Lock = self.ratelimits.get(bucket)
 
             if not self.lock.is_set():
@@ -178,8 +178,8 @@ class Request:
                         kwargs["headers"]["X-Audit-Log-Reason"] = quote(reason, safe="/ ")
 
                 async with self.session.request(
-                    route.method, route.__api__ + route.path, **kwargs
-                ) as response:
+                                route.method, route.__api__ + route.path, **kwargs
+                            ) as response:
                     data = await response.json()
                     log.debug(data)
 
@@ -193,12 +193,10 @@ class Request:
                             log.warning("The HTTP request has encountered a global API ratelimit.")
                             await sleep(retry_after)
                             self.lock.clear()
-                            continue
                         else:
                             log.warning("A local ratelimit with the bucket has been encountered.")
                             await sleep(retry_after)
-                            continue
-
+                        continue
                     return data
 
     async def close(self) -> None:
