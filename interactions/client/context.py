@@ -107,6 +107,25 @@ class _Context(ClientSerializerMixin):
         self.guild = Guild(**res, _client=self._client)
         return self.guild
 
+    async def delete(self) -> None:
+        """
+        This deletes the interaction response of a message sent by the context.
+        This also deletes the ephemeral message, if sent using this context.
+
+        .. note::
+            Doing this will proceed in the context message no longer
+            being present.
+        """
+        if self.responded and self.message:
+            await self._client.delete_webhook_message(
+                webhook_id=int(self.application_id),
+                webhook_token=self.token,
+                message_id=int(self.message.id),
+            )
+        else:
+            await self._client.delete_original_webhook_message(int(self.application_id), self.token)
+        self.message = None
+
     async def send(
         self,
         content: Optional[str] = MISSING,
@@ -522,23 +541,6 @@ class CommandContext(_Context):
             _client=self._client,
             author={"_client": self._client, "id": None, "username": None, "discriminator": None},
         )
-
-    async def delete(self) -> None:
-        """
-        This deletes the interaction response of a message sent by
-        the contextually derived information from this class.
-
-        .. note::
-            Doing this will proceed in the context message no longer
-            being present.
-        """
-        if self.responded:
-            await self._client.delete_webhook_message(
-                webhook_id=int(self.id), webhook_token=self.token, message_id=int(self.message.id)
-            )
-        else:
-            await self._client.delete_original_webhook_message(int(self.id), self.token)
-        self.message = None
 
     async def populate(self, choices: Union[Choice, List[Choice]]) -> List[Choice]:
         """
